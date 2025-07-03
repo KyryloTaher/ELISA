@@ -32,9 +32,15 @@ def init_db():
             well TEXT,
             sample TEXT,
             value REAL,
+            category TEXT,
             FOREIGN KEY(plate_id) REFERENCES plates(id)
         )
     ''')
+    # Ensure "category" column exists when upgrading from older versions
+    cursor.execute("PRAGMA table_info(wells)")
+    cols = [c[1] for c in cursor.fetchall()]
+    if 'category' not in cols:
+        cursor.execute('ALTER TABLE wells ADD COLUMN category TEXT')
     conn.commit()
     conn.close()
 
@@ -104,7 +110,8 @@ def add_plate():
 
 def fetch_local():
     conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql_query('SELECT plates.name as plate, wells.well, wells.sample, wells.value FROM wells JOIN plates ON wells.plate_id = plates.id', conn)
+    df = pd.read_sql_query('SELECT plates.name as plate, wells.well, wells.sample, wells.value, wells.category '
+                           'FROM wells JOIN plates ON wells.plate_id = plates.id', conn)
     conn.close()
     print(df)
 
