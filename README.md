@@ -1,9 +1,10 @@
 # ELISA Manager
 
-This project provides a simple command line application to store ELISA plate results.
-Data entered by the user are saved both locally in a SQLite database (`elisa.db`) and in
-an Excel workbook (`elisa.xlsx`). Optionally the data can also be uploaded to a Google
-Sheets document for online access.
+This project provides both a command line interface and a small graphical
+application to store ELISA plate results. Data entered by the user are saved
+locally in a SQLite database (`elisa.db`). They can also be exported to an Excel
+workbook (`elisa.xlsx`) and optionally uploaded to a Google Sheets document for
+online access.
 
 ## Requirements
 
@@ -44,3 +45,17 @@ python elisa_app.py --fetch-online
 ```
 
 Both local and online results are printed to the console.
+
+### Graphical interface
+
+Launch the GUI with:
+
+```bash
+python elisa_gui.py
+```
+Two 8x12 tables are shown for sample names and values. Use the **Paste** buttons
+to paste tables copied from Excel into the grid. Select wells directly on the
+tables (or type their indices such as `A1 B1`) and use the *Set selected*
+buttons to mark control wells. Press **Save Plate** to store the plate in the
+local database and optionally to Excel and Google Sheets depending on the check
+boxes.
