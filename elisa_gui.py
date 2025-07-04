@@ -162,6 +162,9 @@ class App(tk.Tk):
                 e_name.bind('<Button-1>', lambda e, rc=(r, c): self.toggle_select(rc))
                 e_value.bind('<Button-1>', lambda e, rc=(r, c): self.toggle_select(rc))
 
+        ttk.Button(lf_names, text='Paste', command=lambda: self.paste_clipboard('names')).grid(row=9, column=1, columnspan=12, sticky='ew')
+        ttk.Button(lf_values, text='Paste', command=lambda: self.paste_clipboard('values')).grid(row=9, column=1, columnspan=12, sticky='ew')
+
         frm_cat = ttk.Frame(self)
         frm_cat.pack(fill='x', pady=5)
 
@@ -243,6 +246,23 @@ class App(tk.Tk):
                 if rc:
                     self.categories[rc] = cat
                     self._update_cell_color(rc)
+
+    def paste_clipboard(self, target):
+        try:
+            text = self.clipboard_get()
+        except tk.TclError:
+            return
+        rows = text.strip().splitlines()
+        for r, line in enumerate(rows):
+            if r >= 8:
+                break
+            cells = re.split(r'\t', line)
+            for c, cell in enumerate(cells):
+                if c >= 12:
+                    break
+                widget = self.name_cells[(r, c)] if target == 'names' else self.value_cells[(r, c)]
+                widget.delete(0, 'end')
+                widget.insert(0, cell.strip())
 
     def collect_data(self):
         wells = []
