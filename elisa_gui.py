@@ -111,7 +111,6 @@ def save_plate(names_text, values_text, plate_name, kpos, kneg_sap, kneg_buf, bl
                     'VALUES (?, ?, ?, ?, ?)',
                     [(pid, w['well'], w['sample'], w['value'], w.get('category', ''))
                      for w in wells])
-                    [(pid, w['well'], w['sample'], w['value'], w['category']) for w in wells])
     conn.commit()
     conn.close()
 

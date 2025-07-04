@@ -49,6 +49,7 @@ Both local and online results are printed to the console.
 ### Graphical interface
 
 Launch the GUI with:
+
 Launch the simple GUI with:
 
 ```bash
@@ -60,6 +61,7 @@ tables (or type their indices such as `A1 B1`) and use the *Set selected*
 buttons to mark control wells. Press **Save Plate** to store the plate in the
 local database and optionally to Excel and Google Sheets depending on the check
 boxes.
+
 
 Paste two tables copied from Excel (sample names and corresponding values),
 enter the control well positions and click **Save Plate**. Use the check boxes to
