@@ -57,6 +57,12 @@ def get_gsheet_client():
     return client
 
 
+def parse_table(text):
+    lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    table = [re.split(r'\t|,|\s+', l) for l in lines]
+    return table
+
+
 def parse_wells(text):
     return set(w.strip().upper() for w in re.split(r'[\s,]+', text) if w.strip())
 
@@ -66,6 +72,37 @@ def save_plate_data(wells, plate_name, to_excel=False, to_google=False):
         messagebox.showwarning('No data', 'Plate is empty')
         return
 
+def save_plate(names_text, values_text, plate_name, kpos, kneg_sap, kneg_buf, blank,
+               to_excel=False, to_google=False):
+    name_table = parse_table(names_text)
+    value_table = parse_table(values_text)
+    if len(name_table) != len(value_table):
+        messagebox.showerror('Error', 'Names and values table size mismatch')
+        return
+
+    wells = []
+    for i, (n_row, v_row) in enumerate(zip(name_table, value_table)):
+        for j, (n, v) in enumerate(zip(n_row, v_row)):
+            well = f"{chr(65+i)}{j+1}"
+            try:
+                v = float(v)
+            except ValueError:
+                v = None
+            wells.append({'well': well, 'sample': n, 'value': v})
+
+    # assign categories
+    cat_map = {}
+    for w in parse_wells(kpos):
+        cat_map[w] = 'K+'
+    for w in parse_wells(kneg_sap):
+        cat_map[w] = 'K- healthy'
+    for w in parse_wells(kneg_buf):
+        cat_map[w] = 'K- buffer'
+    for w in parse_wells(blank):
+        cat_map[w] = 'substrate blank'
+    for w in wells:
+        w['category'] = cat_map.get(w['well'], '')
+
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
     cur.execute('INSERT INTO plates (name) VALUES (?)', (plate_name,))
@@ -74,6 +111,7 @@ def save_plate_data(wells, plate_name, to_excel=False, to_google=False):
                     'VALUES (?, ?, ?, ?, ?)',
                     [(pid, w['well'], w['sample'], w['value'], w.get('category', ''))
                      for w in wells])
+                    [(pid, w['well'], w['sample'], w['value'], w['category']) for w in wells])
     conn.commit()
     conn.close()
 
@@ -181,6 +219,25 @@ class App(tk.Tk):
             ent.grid(row=i, column=1, sticky='ew', padx=2)
             ttk.Button(frm_cat, text='Set selected', command=lambda c=cat: self.assign_selected(c)).grid(row=i, column=2, padx=2)
             self.cat_entries[cat] = ent
+        self.text_names = tk.Text(frm_tables, width=40, height=15)
+        self.text_names.pack(side='left', fill='both', expand=True, padx=5, pady=5)
+        self.text_values = tk.Text(frm_tables, width=40, height=15)
+        self.text_values.pack(side='left', fill='both', expand=True, padx=5, pady=5)
+
+        frm_cat = ttk.Frame(self)
+        frm_cat.pack(fill='x', pady=5)
+        ttk.Label(frm_cat, text='K+ wells:').grid(row=0, column=0, sticky='e')
+        ttk.Label(frm_cat, text='K- healthy:').grid(row=1, column=0, sticky='e')
+        ttk.Label(frm_cat, text='K- buffer:').grid(row=2, column=0, sticky='e')
+        ttk.Label(frm_cat, text='Substrate blank:').grid(row=3, column=0, sticky='e')
+        self.entry_kpos = ttk.Entry(frm_cat)
+        self.entry_kneg_sap = ttk.Entry(frm_cat)
+        self.entry_kneg_buf = ttk.Entry(frm_cat)
+        self.entry_blank = ttk.Entry(frm_cat)
+        self.entry_kpos.grid(row=0, column=1, sticky='ew', padx=2)
+        self.entry_kneg_sap.grid(row=1, column=1, sticky='ew', padx=2)
+        self.entry_kneg_buf.grid(row=2, column=1, sticky='ew', padx=2)
+        self.entry_blank.grid(row=3, column=1, sticky='ew', padx=2)
         frm_cat.columnconfigure(1, weight=1)
 
         frm_opts = ttk.Frame(self)
@@ -285,6 +342,15 @@ class App(tk.Tk):
         save_plate_data(
             wells,
             self.entry_plate.get().strip(),
+    def save(self):
+        save_plate(
+            self.text_names.get('1.0', 'end'),
+            self.text_values.get('1.0', 'end'),
+            self.entry_plate.get().strip(),
+            self.entry_kpos.get(),
+            self.entry_kneg_sap.get(),
+            self.entry_kneg_buf.get(),
+            self.entry_blank.get(),
             self.var_excel.get(),
             self.var_google.get()
         )
@@ -318,6 +384,10 @@ class App(tk.Tk):
                 self.categories[(r, c)] = row['category']
                 self._update_cell_color((r, c))
         self.text_output.insert('end', df.to_string(index=False))
+        if df.empty:
+            self.text_output.insert('end', 'No data found\n')
+        else:
+            self.text_output.insert('end', df.to_string(index=False))
 
 
 if __name__ == '__main__':
