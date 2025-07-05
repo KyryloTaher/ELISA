@@ -17,6 +17,13 @@ GOOGLE_CREDENTIALS = 'credentials.json'
 GOOGLE_SHEET_NAME = 'ElisaData'
 
 
+def ensure_working_directory():
+    """Ensure default working directory exists and switch to it."""
+    target = os.path.join(os.path.expanduser('~'), 'projects', 'ELISA')
+    os.makedirs(target, exist_ok=True)
+    os.chdir(target)
+
+
 # Database initialization with category support
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -298,4 +305,5 @@ class App(tk.Tk):
 
 
 if __name__ == '__main__':
+    ensure_working_directory()
     App().mainloop()

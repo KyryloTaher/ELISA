@@ -15,6 +15,13 @@ GOOGLE_CREDENTIALS = 'credentials.json'
 GOOGLE_SHEET_NAME = 'ElisaData'
 
 
+def ensure_working_directory():
+    """Ensure default working directory exists and switch to it."""
+    target = os.path.join(os.path.expanduser('~'), 'projects', 'ELISA')
+    os.makedirs(target, exist_ok=True)
+    os.chdir(target)
+
+
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -141,6 +148,7 @@ if __name__ == '__main__':
     parser.add_argument('--fetch-online', action='store_true', help='Show results from Google Sheets')
     args = parser.parse_args()
 
+    ensure_working_directory()
     init_db()
 
     if args.add:
