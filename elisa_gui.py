@@ -43,6 +43,9 @@ def init_db():
             sample TEXT,
             value REAL,
             category TEXT,
+            serum TEXT,
+            normalized REAL,
+            result TEXT,
             FOREIGN KEY(plate_id) REFERENCES plates(id)
         )
     ''')
@@ -50,6 +53,12 @@ def init_db():
     cols = [c[1] for c in cur.fetchall()]
     if 'category' not in cols:
         cur.execute('ALTER TABLE wells ADD COLUMN category TEXT')
+    if 'serum' not in cols:
+        cur.execute('ALTER TABLE wells ADD COLUMN serum TEXT')
+    if 'normalized' not in cols:
+        cur.execute('ALTER TABLE wells ADD COLUMN normalized REAL')
+    if 'result' not in cols:
+        cur.execute('ALTER TABLE wells ADD COLUMN result TEXT')
     conn.commit()
     conn.close()
 
@@ -78,11 +87,55 @@ def save_plate_data(wells, plate_name, to_excel=False, to_google=False):
     if not wells:
         messagebox.showwarning('No data', 'Plate is empty')
         return
+    if not plate_name:
+        messagebox.showwarning('Plate', 'Plate name required')
+        return
+
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute('INSERT INTO plates (name) VALUES (?)', (plate_name,))
+    pid = cur.lastrowid
+    cur.executemany(
+        'INSERT INTO wells (plate_id, well, sample, value, category, serum) '
+        'VALUES (?, ?, ?, ?, ?, ?)',
+        [(
+            pid,
+            w['well'],
+            w['sample'],
+            w['value'],
+            w.get('category', ''),
+            w.get('serum', '')
+        ) for w in wells]
+    )
+    conn.commit()
+    conn.close()
+
+    df = pd.DataFrame(wells)
+    df.insert(0, 'plate', plate_name)
+
+    if to_excel:
+        if os.path.exists(EXCEL_FILE):
+            with pd.ExcelWriter(EXCEL_FILE, mode='a', if_sheet_exists='new', engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name=plate_name, index=False)
+        else:
+            df.to_excel(EXCEL_FILE, sheet_name=plate_name, index=False)
+
+    if to_google and gspread:
+        try:
+            client = get_gsheet_client()
+            sheet = client.open(GOOGLE_SHEET_NAME)
+            ws = sheet.add_worksheet(title=plate_name, rows=str(len(df)+1), cols=str(len(df.columns)))
+            ws.update([df.columns.tolist()] + df.values.tolist())
+        except Exception as e:
+            messagebox.showwarning('Google Sheets', f'Upload failed: {e}')
+
+    messagebox.showinfo('Saved', f'Plate {plate_name} saved to database.')
 
 def fetch_plate(plate_name):
     conn = sqlite3.connect(DB_FILE)
     df = pd.read_sql_query(
-        'SELECT wells.well, wells.sample, wells.value, wells.category '
+        'SELECT wells.well, wells.sample, wells.value, wells.category, '
+        'wells.serum, wells.normalized, wells.result '
         'FROM wells JOIN plates ON wells.plate_id = plates.id WHERE plates.name=?',
         conn, params=(plate_name,))
     conn.close()
@@ -97,6 +150,7 @@ class App(tk.Tk):
         self.name_cells = {}
         self.value_cells = {}
         self.categories = {}
+        self.serums = {}
         self.selected = set()
         self.cat_colors = {
             'K+': '#b6fcb6',
@@ -161,6 +215,9 @@ class App(tk.Tk):
             ent.grid(row=i, column=1, sticky='ew', padx=2)
             ttk.Button(frm_cat, text='Set selected', command=lambda c=cat: self.assign_selected(c)).grid(row=i, column=2, padx=2)
             self.cat_entries[cat] = ent
+        ttk.Label(frm_cat, text='Serum name:').grid(row=len(labels), column=0, sticky='e')
+        self.entry_serum = ttk.Entry(frm_cat)
+        self.entry_serum.grid(row=len(labels), column=1, sticky='ew', padx=2)
         frm_cat.columnconfigure(1, weight=1)
 
         frm_opts = ttk.Frame(self)
@@ -175,6 +232,17 @@ class App(tk.Tk):
         ttk.Button(frm_btn, text='Save Plate', command=self.save).pack(side='left', padx=5)
         ttk.Button(frm_btn, text='Fetch Plate', command=self.fetch).pack(side='left', padx=5)
         ttk.Button(frm_btn, text='Clear Selection', command=self.clear_selection).pack(side='left', padx=5)
+
+        frm_calc = ttk.Frame(self)
+        frm_calc.pack(fill='x', pady=5)
+        ttk.Label(frm_calc, text='Method:').pack(side='left')
+        self.var_method = tk.StringVar(value='SD')
+        ttk.Combobox(frm_calc, textvariable=self.var_method, values=['SD', 'Multiple'], width=10, state='readonly').pack(side='left', padx=2)
+        ttk.Label(frm_calc, text='Multiplier:').pack(side='left')
+        self.entry_multiplier = ttk.Entry(frm_calc, width=5)
+        self.entry_multiplier.insert(0, '3')
+        self.entry_multiplier.pack(side='left', padx=2)
+        ttk.Button(frm_calc, text='Calculate Results', command=self.calculate_results).pack(side='left', padx=5)
 
         self.text_output = tk.Text(self, height=10)
         self.text_output.pack(fill='both', expand=True, padx=5, pady=5)
@@ -204,27 +272,36 @@ class App(tk.Tk):
             self.value_cells[rc].config(bg='cyan')
 
     def assign_selected(self, cat):
+        serum = self.entry_serum.get().strip()
         for rc in list(self.selected):
             self.categories[rc] = cat
+            if serum:
+                self.serums[rc] = serum
             self.selected.remove(rc)
             self._update_cell_color(rc)
         for w in parse_wells(self.cat_entries[cat].get()):
             rc = self.well_to_rc(w)
             if rc:
                 self.categories[rc] = cat
+                if serum:
+                    self.serums[rc] = serum
                 self._update_cell_color(rc)
 
     def clear_selection(self):
         for rc in list(self.selected):
             self.selected.remove(rc)
+            self.serums.pop(rc, None)
             self._update_cell_color(rc)
 
     def assign_from_entries(self):
+        serum = self.entry_serum.get().strip()
         for cat, ent in self.cat_entries.items():
             for w in parse_wells(ent.get()):
                 rc = self.well_to_rc(w)
                 if rc:
                     self.categories[rc] = cat
+                    if serum:
+                        self.serums[rc] = serum
                     self._update_cell_color(rc)
 
     def paste_clipboard(self, target):
@@ -256,7 +333,8 @@ class App(tk.Tk):
                 except ValueError:
                     value = None
                 cat = self.categories.get((r, c), '')
-                wells.append({'well': well, 'sample': name, 'value': value, 'category': cat})
+                serum = self.serums.get((r, c), '')
+                wells.append({'well': well, 'sample': name, 'value': value, 'category': cat, 'serum': serum})
         return wells
 
     def save(self):
@@ -297,11 +375,58 @@ class App(tk.Tk):
             if row['category']:
                 self.categories[(r, c)] = row['category']
                 self._update_cell_color((r, c))
+            if row['serum']:
+                self.serums[(r, c)] = row['serum']
         self.text_output.insert('end', df.to_string(index=False))
         if df.empty:
             self.text_output.insert('end', 'No data found\n')
         else:
             self.text_output.insert('end', df.to_string(index=False))
+
+    def calculate_results(self):
+        self.assign_from_entries()
+        wells = self.collect_data()
+        df = pd.DataFrame(wells)
+        if df['value'].dropna().empty:
+            messagebox.showwarning('Data', 'No numeric values to analyze')
+            return
+
+        blank_vals = df[df['category'] == 'substrate blank']['value'].dropna()
+        blank = blank_vals.mean() if not blank_vals.empty else 0.0
+        df['normalized'] = df['value'] - blank
+
+        healthy = df[df['category'] == 'K- healthy']['normalized'].dropna()
+        if healthy.empty:
+            messagebox.showwarning('Controls', 'No healthy sap values provided')
+            return
+        mean_h = healthy.mean()
+        try:
+            mult = float(self.entry_multiplier.get())
+        except ValueError:
+            mult = 1.0
+        if self.var_method.get() == 'SD':
+            threshold = mean_h + mult * healthy.std()
+        else:
+            threshold = mean_h * mult
+        df['result'] = df['normalized'].apply(lambda x: 'positive' if x > threshold else 'negative')
+
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute('SELECT id FROM plates WHERE name=?', (self.entry_plate.get().strip(),))
+        row = cur.fetchone()
+        if row:
+            pid = row[0]
+            for _, r in df.iterrows():
+                cur.execute(
+                    'UPDATE wells SET serum=?, category=?, normalized=?, result=? '
+                    'WHERE plate_id=? AND well=?',
+                    (r.get('serum', ''), r['category'], r['normalized'], r['result'], pid, r['well'])
+                )
+            conn.commit()
+        conn.close()
+
+        self.text_output.delete('1.0', 'end')
+        self.text_output.insert('end', df[["well", "sample", "serum", "normalized", "result"]].to_string(index=False))
 
 
 if __name__ == '__main__':
