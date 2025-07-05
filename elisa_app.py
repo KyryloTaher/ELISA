@@ -40,6 +40,9 @@ def init_db():
             sample TEXT,
             value REAL,
             category TEXT,
+            serum TEXT,
+            normalized REAL,
+            result TEXT,
             FOREIGN KEY(plate_id) REFERENCES plates(id)
         )
     ''')
@@ -48,6 +51,12 @@ def init_db():
     cols = [c[1] for c in cursor.fetchall()]
     if 'category' not in cols:
         cursor.execute('ALTER TABLE wells ADD COLUMN category TEXT')
+    if 'serum' not in cols:
+        cursor.execute('ALTER TABLE wells ADD COLUMN serum TEXT')
+    if 'normalized' not in cols:
+        cursor.execute('ALTER TABLE wells ADD COLUMN normalized REAL')
+    if 'result' not in cols:
+        cursor.execute('ALTER TABLE wells ADD COLUMN result TEXT')
     conn.commit()
     conn.close()
 
