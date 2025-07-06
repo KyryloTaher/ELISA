@@ -218,6 +218,12 @@ class App(tk.Tk):
         ttk.Label(frm_cat, text='Serum name:').grid(row=len(labels), column=0, sticky='e')
         self.entry_serum = ttk.Entry(frm_cat)
         self.entry_serum.grid(row=len(labels), column=1, sticky='ew', padx=2)
+
+        ttk.Label(frm_cat, text='Serum wells:').grid(row=len(labels)+1, column=0, sticky='e')
+        self.entry_serum_wells = ttk.Entry(frm_cat)
+        self.entry_serum_wells.grid(row=len(labels)+1, column=1, sticky='ew', padx=2)
+        ttk.Button(frm_cat, text='Set serum', command=self.assign_serum).grid(row=len(labels)+1, column=2, padx=2)
+
         frm_cat.columnconfigure(1, weight=1)
 
         frm_opts = ttk.Frame(self)
@@ -287,6 +293,20 @@ class App(tk.Tk):
                     self.serums[rc] = serum
                 self._update_cell_color(rc)
 
+    def assign_serum(self):
+        serum = self.entry_serum.get().strip()
+        if not serum:
+            return
+        for rc in list(self.selected):
+            self.serums[rc] = serum
+            self.selected.remove(rc)
+            self._update_cell_color(rc)
+        for w in parse_wells(self.entry_serum_wells.get()):
+            rc = self.well_to_rc(w)
+            if rc:
+                self.serums[rc] = serum
+                self._update_cell_color(rc)
+
     def clear_selection(self):
         for rc in list(self.selected):
             self.selected.remove(rc)
@@ -303,6 +323,11 @@ class App(tk.Tk):
                     if serum:
                         self.serums[rc] = serum
                     self._update_cell_color(rc)
+        for w in parse_wells(self.entry_serum_wells.get()):
+            rc = self.well_to_rc(w)
+            if rc and serum:
+                self.serums[rc] = serum
+                self._update_cell_color(rc)
 
     def paste_clipboard(self, target):
         try:
@@ -410,6 +435,9 @@ class App(tk.Tk):
             threshold = mean_h * mult
         df['result'] = df['normalized'].apply(lambda x: 'positive' if x > threshold else 'negative')
 
+        serum_summary = df[df['serum'] != ''].groupby('serum')['normalized'].mean().reset_index()
+        serum_summary['result'] = serum_summary['normalized'].apply(lambda x: 'positive' if x > threshold else 'negative')
+
         conn = sqlite3.connect(DB_FILE)
         cur = conn.cursor()
         cur.execute('SELECT id FROM plates WHERE name=?', (self.entry_plate.get().strip(),))
@@ -426,6 +454,10 @@ class App(tk.Tk):
         conn.close()
 
         self.text_output.delete('1.0', 'end')
+        if not serum_summary.empty:
+            self.text_output.insert('end', 'Serum results\n')
+            self.text_output.insert('end', serum_summary.to_string(index=False))
+            self.text_output.insert('end', '\n\n')
         self.text_output.insert('end', df[["well", "sample", "serum", "normalized", "result"]].to_string(index=False))
 
 
